@@ -79,34 +79,13 @@ echo.
 
 REM --- Install Other Dependencies ---
 echo Installing other required libraries from requirements.txt...
-echo Note: If you encounter build errors with Python 3.13, this is normal.
-echo We'll try installing packages individually as a fallback...
-echo.
-
-REM Try installing requirements.txt first
 pip install -r requirements.txt
 if %errorlevel% neq 0 (
-    echo [WARNING] Some packages failed to install from requirements.txt.
-    echo This is likely due to Python 3.13 compatibility issues.
-    echo Trying to install packages individually with fallback versions...
+    echo [ERROR] Failed to install dependencies from requirements.txt.
+    echo Please check your internet connection and the contents of requirements.txt.
     echo.
-    
-    REM Install packages individually with fallback versions
-    echo Installing transformers...
-    pip install "transformers>=4.30.0" --prefer-binary
-    
-    echo Installing accelerate...
-    pip install "accelerate>=0.20.0" --prefer-binary
-    
-    echo Installing sentencepiece...
-    pip install sentencepiece --prefer-binary
-    
-    echo Installing additional required packages...
-    pip install requests tqdm numpy --prefer-binary
-    
-    echo.
-    echo If some packages still fail to install, the core functionality should still work.
-    echo You can try running the program and install missing packages as needed.
+    pause
+    exit /b 1
 )
 echo.
 
