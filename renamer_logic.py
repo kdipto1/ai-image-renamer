@@ -14,8 +14,13 @@ from tkinter import messagebox
 import torch
 from PIL import Image
 from transformers import (
-    BlipProcessor, BlipForConditionalGeneration,
-    Blip2Processor, Blip2ForConditionalGeneration
+    VisionEncoderDecoderModel,
+    ViTImageProcessor,
+    AutoTokenizer,
+    BlipProcessor,
+    BlipForConditionalGeneration,
+    Blip2Processor,
+    Blip2ForConditionalGeneration,
 )
 
 class RenameOperation(NamedTuple):
@@ -31,7 +36,8 @@ class EnhancedImageRenamer:
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model = None
         self.processor = None
-        self.model_type = "blip"
+        self.tokenizer = None
+        self.model_type = "vit"
         self.batch_size = 4 if self.device == "cuda" else 2
         self.max_workers = 3
         self._is_cancelled = False
@@ -43,25 +49,39 @@ class EnhancedImageRenamer:
         self.current_file_var = None
         self.log_callback: Optional[Callable[[str], None]] = None
 
-    def load_model(self, model_type: str = "blip2"):
+    def load_model(self, model_type: str = "vit"):
         """Load the specified model with optimizations"""
         try:
-            if model_type == "blip2":
+            if model_type == "vit":
+                model_name = "nlpconnect/vit-gpt2-image-captioning"
+                self.processor = ViTImageProcessor.from_pretrained(model_name)
+                self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+                self.model = VisionEncoderDecoderModel.from_pretrained(
+                    model_name,
+                    torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
+                ).to(self.device)
+            elif model_type == "blip2":
                 processor_class = Blip2Processor
                 model_class = Blip2ForConditionalGeneration
                 pretrained_model = "Salesforce/blip2-opt-2.7b"
-            else:
+                self.processor = processor_class.from_pretrained(pretrained_model)
+                self.model = model_class.from_pretrained(
+                    pretrained_model,
+                    torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
+                    device_map="auto" if self.device == "cuda" else None
+                )
+            else: # blip
                 processor_class = BlipProcessor
                 model_class = BlipForConditionalGeneration
                 pretrained_model = "Salesforce/blip-image-captioning-large"
+                self.processor = processor_class.from_pretrained(pretrained_model)
+                self.model = model_class.from_pretrained(
+                    pretrained_model,
+                    torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
+                    device_map="auto" if self.device == "cuda" else None
+                )
 
-            self.processor = processor_class.from_pretrained(pretrained_model)
-            self.model = model_class.from_pretrained(
-                pretrained_model,
-                torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
-                device_map="auto" if self.device == "cuda" else None
-            )
-            if self.device == "cuda":
+            if self.device == "cuda" and model_type != "vit":
                 self.model.to(self.device)
 
             self.model_type = model_type
@@ -98,23 +118,31 @@ class EnhancedImageRenamer:
             if max(image.size) > 1024:
                 image.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
 
-            if self.model_type == "blip2":
-                inputs = self.processor(image, return_tensors="pt").to(self.device, torch.float16 if self.device == 'cuda' else torch.float32)
-            else:
-                inputs = self.processor(image, return_tensors="pt").to(self.device)
-            
-            if self.device == "cuda":
-                inputs = {k: v.half() if v.dtype == torch.float32 else v for k, v in inputs.items()}
+            if self.model_type == "vit":
+                pixel_values = self.processor(images=image, return_tensors="pt").pixel_values.to(self.device)
+                with torch.no_grad():
+                    output_ids = self.model.generate(pixel_values, max_length=16, num_beams=4, return_dict_in_generate=True).sequences
+                preds = self.tokenizer.batch_decode(output_ids, skip_special_tokens=True)
+                caption = preds[0].strip()
+            else: # blip or blip2
+                if self.model_type == "blip2":
+                    inputs = self.processor(image, return_tensors="pt").to(self.device, torch.float16 if self.device == 'cuda' else torch.float32)
+                else:
+                    inputs = self.processor(image, return_tensors="pt").to(self.device)
+                
+                if self.device == "cuda":
+                    inputs = {k: v.half() if v.dtype == torch.float32 else v for k, v in inputs.items()}
 
-            with torch.no_grad():
-                generated_ids = self.model.generate(
-                    **inputs,
-                    max_length=50 if self.model_type == "blip2" else 30,
-                    num_beams=4 if self.model_type == "blip2" else 3,
-                    do_sample=True if self.model_type == "blip2" else False,
-                    temperature=0.7 if self.model_type == "blip2" else None
-                )
-            caption = self.processor.decode(generated_ids[0], skip_special_tokens=True)
+                with torch.no_grad():
+                    generated_ids = self.model.generate(
+                        **inputs,
+                        max_length=50 if self.model_type == "blip2" else 30,
+                        num_beams=4 if self.model_type == "blip2" else 3,
+                        do_sample=True if self.model_type == "blip2" else False,
+                        temperature=0.7 if self.model_type == "blip2" else None
+                    )
+                caption = self.processor.decode(generated_ids[0], skip_special_special_tokens=True)
+
             return self._clean_filename(caption)
         except Exception as e:
             if self.log_callback:

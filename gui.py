@@ -82,12 +82,14 @@ class GUI:
         title_label.grid(row=0, column=0, columnspan=2, pady=(0, 20), sticky="w")
         
         ttk.Label(self.renamer_frame, text="AI Model:").grid(row=1, column=0, sticky=tk.W, pady=5)
-        self.model_var = tk.StringVar(value="blip2")
+        self.model_var = tk.StringVar(value="vit")
         model_frame = ttk.Frame(self.renamer_frame)
         model_frame.grid(row=1, column=1, sticky=(tk.W, tk.E), pady=5)
         
+        ttk.Radiobutton(model_frame, text="ViT-GPT2 (Recommended)", 
+                       variable=self.model_var, value="vit").pack(side=tk.LEFT)
         ttk.Radiobutton(model_frame, text="BLIP-2 (More Accurate)", 
-                       variable=self.model_var, value="blip2").pack(side=tk.LEFT)
+                       variable=self.model_var, value="blip2").pack(side=tk.LEFT, padx=(20, 0))
         ttk.Radiobutton(model_frame, text="BLIP-1 (Faster)", 
                        variable=self.model_var, value="blip").pack(side=tk.LEFT, padx=(20, 0))
         
