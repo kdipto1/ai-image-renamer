@@ -79,35 +79,41 @@ class GUI:
         
         title_label = ttk.Label(self.renamer_frame, text="Enhanced AI Image Renamer", 
                                font=('Arial', 16, 'bold'))
-        title_label.grid(row=0, column=0, columnspan=2, pady=(0, 20), sticky="w")
+        title_label.grid(row=0, column=0, columnspan=3, pady=(0, 20), sticky="w")
         
         ttk.Label(self.renamer_frame, text="AI Model:").grid(row=1, column=0, sticky=tk.W, pady=5)
         self.model_var = tk.StringVar(value="vit")
         model_frame = ttk.Frame(self.renamer_frame)
-        model_frame.grid(row=1, column=1, sticky=(tk.W, tk.E), pady=5)
+        model_frame.grid(row=1, column=1, columnspan=2, sticky=(tk.W, tk.E), pady=5)
         
         ttk.Radiobutton(model_frame, text="ViT-GPT2 (Recommended)", 
-                       variable=self.model_var, value="vit").pack(side=tk.LEFT)
+                       variable=self.model_var, value="vit", command=self.toggle_api_key_entry).pack(side=tk.LEFT)
         ttk.Radiobutton(model_frame, text="BLIP-2 (More Accurate)", 
-                       variable=self.model_var, value="blip2").pack(side=tk.LEFT, padx=(20, 0))
+                       variable=self.model_var, value="blip2", command=self.toggle_api_key_entry).pack(side=tk.LEFT, padx=(20, 0))
         ttk.Radiobutton(model_frame, text="BLIP-1 (Faster)", 
-                       variable=self.model_var, value="blip").pack(side=tk.LEFT, padx=(20, 0))
-        
+                       variable=self.model_var, value="blip", command=self.toggle_api_key_entry).pack(side=tk.LEFT, padx=(20, 0))
+        ttk.Radiobutton(model_frame, text="Google AI", 
+                       variable=self.model_var, value="google", command=self.toggle_api_key_entry).pack(side=tk.LEFT, padx=(20, 0))
+
+        self.api_key_label = ttk.Label(self.renamer_frame, text="Google AI API Key:")
+        self.api_key_var = tk.StringVar()
+        self.api_key_entry = ttk.Entry(self.renamer_frame, textvariable=self.api_key_var, show="*")
+
         device_info = f"Device: {self.renamer.device.upper()}"
         if self.renamer.device == "cuda":
             try:
                 device_info += f" (GPU: {torch.cuda.get_device_name(0)})"
             except Exception as e:
                 print(f"Could not get GPU name: {e}")
-        ttk.Label(self.renamer_frame, text=device_info, font=('Arial', 9)).grid(
-            row=2, column=0, columnspan=2, pady=5, sticky="w")
+        self.device_label = ttk.Label(self.renamer_frame, text=device_info, font=('Arial', 9))
+        self.device_label.grid(row=3, column=0, columnspan=3, pady=5, sticky="w")
         
         self.load_button = ttk.Button(self.renamer_frame, text="Load Model", command=self.load_model)
-        self.load_button.grid(row=3, column=0, columnspan=2, pady=10)
+        self.load_button.grid(row=4, column=0, columnspan=3, pady=10)
         
-        ttk.Label(self.renamer_frame, text="Image Folder:").grid(row=4, column=0, sticky=tk.W, pady=5)
+        ttk.Label(self.renamer_frame, text="Image Folder:").grid(row=5, column=0, sticky=tk.W, pady=5)
         folder_frame = ttk.Frame(self.renamer_frame)
-        folder_frame.grid(row=4, column=1, sticky=(tk.W, tk.E), pady=5)
+        folder_frame.grid(row=5, column=1, columnspan=2, sticky=(tk.W, tk.E), pady=5)
         folder_frame.columnconfigure(0, weight=1)
         
         self.folder_var = tk.StringVar()
@@ -117,10 +123,10 @@ class GUI:
         
         self.process_button = ttk.Button(self.renamer_frame, text="Start Renaming", 
                                        command=self.start_processing, state="disabled")
-        self.process_button.grid(row=5, column=0, columnspan=2, pady=20)
+        self.process_button.grid(row=6, column=0, columnspan=3, pady=20)
         
         progress_frame = ttk.LabelFrame(self.renamer_frame, text="Progress", padding="10")
-        progress_frame.grid(row=6, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=10)
+        progress_frame.grid(row=7, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
         progress_frame.columnconfigure(0, weight=1)
         
         self.progress_var = tk.DoubleVar()
@@ -147,6 +153,18 @@ class GUI:
         self.renamer.current_file_var = self.current_file_var
         self.renamer.log_callback = self.log_message
 
+        self.toggle_api_key_entry() # Call to set initial state
+
+    def toggle_api_key_entry(self):
+        if self.model_var.get() == "google":
+            self.api_key_label.grid(row=2, column=0, sticky=tk.W, pady=5)
+            self.api_key_entry.grid(row=2, column=1, sticky=(tk.W, tk.E), pady=5)
+            self.device_label.grid_remove()
+        else:
+            self.api_key_label.grid_remove()
+            self.api_key_entry.grid_remove()
+            self.device_label.grid(row=3, column=0, columnspan=3, pady=5, sticky="w")
+
     def log_message(self, message):
         self.log_text.config(state='normal')
         self.log_text.insert(tk.END, message + "\n")
@@ -159,7 +177,9 @@ class GUI:
         self.root.update()
         
         def load_in_thread():
-            success = self.renamer.load_model(self.model_var.get())
+            model_type = self.model_var.get()
+            api_key = self.api_key_var.get() if model_type == "google" else None
+            success = self.renamer.load_model(model_type, api_key)
             self.root.after(0, lambda: self.on_model_loaded(success))
         
         threading.Thread(target=load_in_thread, daemon=True).start()

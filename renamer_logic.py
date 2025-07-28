@@ -22,6 +22,7 @@ from transformers import (
     Blip2Processor,
     Blip2ForConditionalGeneration,
 )
+import google.generativeai as genai
 
 class RenameOperation(NamedTuple):
     original_path: str
@@ -38,6 +39,7 @@ class EnhancedImageRenamer:
         self.processor = None
         self.tokenizer = None
         self.model_type = "vit"
+        self.google_api_key = None
         self.batch_size = 4 if self.device == "cuda" else 2
         self.max_workers = 3
         self._is_cancelled = False
@@ -49,10 +51,19 @@ class EnhancedImageRenamer:
         self.current_file_var = None
         self.log_callback: Optional[Callable[[str], None]] = None
 
-    def load_model(self, model_type: str = "vit"):
+    def load_model(self, model_type: str = "vit", api_key: Optional[str] = None):
         """Load the specified model with optimizations"""
         try:
-            if model_type == "vit":
+            if model_type == "google":
+                if not api_key:
+                    messagebox.showerror("API Key Error", "Google AI API Key is required.")
+                    return False
+                self.google_api_key = api_key
+                genai.configure(api_key=self.google_api_key)
+                self.model = genai.GenerativeModel('gemini-pro-vision')
+                self.model_type = model_type
+                return True
+            elif model_type == "vit":
                 model_name = "nlpconnect/vit-gpt2-image-captioning"
                 self.processor = ViTImageProcessor.from_pretrained(model_name)
                 self.tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -111,8 +122,22 @@ class EnhancedImageRenamer:
             text = text[:max_length].rsplit('-', 1)[0]
         return text.capitalize()
 
+    def _describe_image_google(self, image_path: str) -> Optional[str]:
+        """Generate description for a single image using Google AI"""
+        try:
+            image = Image.open(image_path).convert("RGB")
+            response = self.model.generate_content(["Describe this image for a filename", image], stream=False)
+            return self._clean_filename(response.text)
+        except Exception as e:
+            if self.log_callback:
+                self.log_callback(f"Error processing {image_path} with Google AI: {e}")
+            return None
+
     def _describe_image(self, image_path: str) -> Optional[str]:
         """Generate description for a single image with error handling"""
+        if self.model_type == "google":
+            return self._describe_image_google(image_path)
+
         try:
             image = Image.open(image_path).convert("RGB")
             if max(image.size) > 1024:
